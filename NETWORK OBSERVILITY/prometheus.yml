@@ -13,10 +13,11 @@ scrape_configs:
   - job_name: 'snmp-devices'
     metrics_path: /snmp
     params:
-      module: [if_mib]
+      module:
+        - if_mib
     file_sd_configs:
       - files:
-        - /etc/prometheus/targets.yml
+          - /etc/prometheus/targets.yml
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
