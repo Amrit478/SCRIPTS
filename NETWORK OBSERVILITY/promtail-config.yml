@@ -1,0 +1,50 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: syslog-udp
+    syslog:
+      listen_address: 0.0.0.0:1514
+      listen_protocol: udp
+      idle_timeout: 1h
+      label_structured_data: yes
+      labels:
+        job: "syslog"
+        protocol: "udp"
+    relabel_configs:
+      - source_labels: ['__syslog_message_hostname']
+        target_label: 'host'
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}) (?P<hostname>\S+) (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: 'Jan _2 15:04:05'
+          location: 'Local'
+
+  - job_name: syslog-tcp
+    syslog:
+      listen_address: 0.0.0.0:1515
+      listen_protocol: tcp
+      idle_timeout: 1h
+      label_structured_data: yes
+      labels:
+        job: "syslog"
+        protocol: "tcp"
+    relabel_configs:
+      - source_labels: ['__syslog_message_hostname']
+        target_label: 'host'
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}) (?P<hostname>\S+) (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: 'Jan _2 15:04:05'
+          location: 'Local'
