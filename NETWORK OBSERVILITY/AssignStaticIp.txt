@@ -1,0 +1,47 @@
+Since `Management(Cloud0)` connects directly to the same network interface as your main EVE-NG host (`192.168.80.131`), your Linux VM must use your EVE-NG host's actual default gateway to reach the internet.
+
+---
+
+**Step 1: Get the Gateway IP directly from EVE-NG**
+
+Open your main SSH session to EVE-NG (`root@gns3-iouvm`) and run:
+
+```bash
+ip route show | grep default
+
+```
+
+*(This will spit out a line like `default via 192.168.80.X dev pnet0`. Take note of that exact `192.168.80.X` IP).*
+
+---
+
+**Step 2: Assign the IP and Gateway inside the Linux VM**
+
+Go back into your **Linux VM (`root@kvm`)** terminal and run these commands (replace `192.168.80.X` with the gateway IP you found in Step 1):
+
+```bash
+# Flush eth0 and set IP on the same subnet
+ip addr flush dev eth0
+ip addr add 192.168.80.150/24 dev eth0
+
+# Add the gateway found from the host
+ip route add default via 192.168.80.X
+
+# Set public DNS
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+
+```
+
+---
+
+**Step 3: Test and Pull**
+
+```bash
+# Test connection
+ping -c 3 8.8.8.8
+
+# Start Docker containers
+cd /opt/monitoring && docker-compose up -d
+
+```
