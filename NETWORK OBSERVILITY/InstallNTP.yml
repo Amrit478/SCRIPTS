@@ -1,0 +1,10 @@
+# Install chrony (modern NTP server)
+apt-get update && apt-get install -y chrony
+
+# Configure Chrony to allow local subnet clients (e.g., 192.168.80.0/24)
+echo "allow 192.168.80.0/24" >> /etc/chrony/chrony.conf
+echo "local stratum 10" >> /etc/chrony/chrony.conf
+
+# Restart and enable Chrony service
+systemctl restart chrony
+systemctl enable chrony
