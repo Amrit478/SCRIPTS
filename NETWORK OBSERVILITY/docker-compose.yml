@@ -1,1 +1,76 @@
 
+version: '3.3'
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: always
+    ports:
+      - "3100:3100"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./targets.yml:/etc/prometheus/targets.yml
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: always
+    ports:
+      - "514:1514/udp"
+      - "1514:1514/udp"
+      - "1515:1515/tcp"
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml
+
+  snmp-exporter:
+    image: prom/snmp-exporter:latest
+    container_name: snmp_exporter
+    restart: always
+    ports:
+      - "9116:9116"
+
+  goflow-udp:
+    image: netsampler/goflow2:latest
+    container_name: goflow2_udp
+    restart: always
+    ports:
+      - "2055:2055/udp"
+    command:
+      - "-listen=netflow://0.0.0.0:2055"
+      - "-format=prometheus"
+      - "-metric.addr=0.0.0.0:8080"
+
+  goflow2-tcp:
+    image: netsampler/goflow2:latest
+    container_name: goflow2_tcp
+    restart: always
+    ports:
+      - "2056:2056/tcp"
+    command:
+      - "-listen=netflow://0.0.0.0:2056"
+      - "-format=prometheus"
+      - "-metric.addr=0.0.0.0:8081"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    restart: always
+    ports:
+      - "9100:9100"
+    command:
+      - "--collector.ntp"
+      - "--collector.ntp.server=pool.ntp.org"
