@@ -1,0 +1,15 @@
+Based on the exact configuration scripts provided in the previous step, here is exactly what you are tracking and what you are not tracking yet.
+
+Your current setup focuses on **infrastructure metrics** (health and performance numbers) and **centralized logging** (text-based event messages).
+
+Here is the breakdown of the specific things you asked about:
+
+* **Time:** Yes. All data collected by Prometheus (metrics) and Loki (syslogs) is automatically time-stamped by the system.
+* **Syslog:** Yes. Your Grafana Alloy container is actively listening for syslog messages on port `1514` (UDP) and `1515` (TCP) and saving them into Loki.
+* **SNMP:** Yes, but as **metrics**, not logs. Your SNMP Exporter is configured to pull `if_mib` data (basic interface up/down status and traffic counters) from your Cisco and Fortinet devices.
+* **IP SLA:** **Not yet.** While the architecture supports it, the script explicitly left out the specific Cisco IP SLA SNMP configurations (the RTTMON MIBs) to keep things simple. You will need to add these OIDs to your `snmp.yml` file in the next phase.
+* **PBR (Policy-Based Routing):** **No.** Tracking PBR route maps and traffic usually requires NetFlow or highly specific SNMP polling, neither of which are in this baseline config.
+* **NetFlow:** **No.** The GoFlow2 containers and NetFlow configurations were intentionally removed from this script to save resources and simplify your lab.
+* **Device Availability:** Yes. The Blackbox Exporter is configured to actively send ICMP pings and check TCP ports (like SSH or HTTPS) to ensure your devices are online and measure basic network latency.
+
+What would you like to verify first on your EVE-NG devices: sending a test Syslog message to the server, or configuring the SNMP community strings?
