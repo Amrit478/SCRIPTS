@@ -1,0 +1,13 @@
+Areas for Adjustment
+
+While the provided script is extremely close to being a perfect copy-paste deployment, there are a few technical hurdles you will encounter when you execute it:
+
+    Missing SNMP Configuration (snmp.yml): The guide rightly points out that you need to be careful with SNMP credentials, but it fails to actually create or mount an snmp.yml file for the snmp-exporter container. Without this file, the exporter will not know how to translate the OIDs for your Cisco and Fortinet devices.
+
+    Loki Configuration: The Loki container is instructed to run -config.file=/etc/loki/local-config.yaml. While the Docker image contains a default version of this file, it is highly recommended to create and mount your own so you can control log retention (otherwise, syslog data might eventually fill up your Xubuntu hard drive).
+
+    Directory Permissions: You create the configurations inside /opt/monitoring with your standard user. Ensure that the Docker daemon has the appropriate read permissions to access the bind-mounted .yml files, or the containers will crash on startup.
+
+Overall, it is a fantastic guide that accurately scopes down the complexity of your lab.
+
+Would you like me to generate the missing snmp.yml baseline configuration so your SNMP Exporter is fully ready to communicate with your EVE-NG devices?
