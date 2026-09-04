@@ -1,0 +1,97 @@
+Yes, the information is **mostly correct**, but Microsoft's current official instructions have changed slightly. I would use the **APT repository method** for your Xubuntu monitoring lab because you will be editing Docker Compose files, Prometheus configs, Alloy configs, YAML files, and Python/network automation projects.
+
+## My recommendation: Method 2 — Microsoft APT Repository
+
+Your original commands work in principle, but use this updated Microsoft-supported method instead.
+
+### 1. Install required packages
+
+```bash
+sudo apt update
+sudo apt install -y wget gpg
+```
+
+### 2. Install Microsoft's signing key
+
+```bash
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+```
+
+### 3. Add the VS Code repository
+
+```bash
+sudo tee /etc/apt/sources.list.d/vscode.sources > /dev/null << 'EOF'
+Types: deb
+URIs: https://packages.microsoft.com/repos/code
+Suites: stable
+Components: main
+Architectures: amd64,arm64,armhf
+Signed-By: /usr/share/keyrings/microsoft.gpg
+EOF
+```
+
+### 4. Install VS Code
+
+```bash
+sudo apt update
+sudo apt install -y code
+```
+
+### 5. Launch it
+
+```bash
+code
+```
+
+Or, to open your monitoring project directly:
+
+```bash
+code /opt/monitoring
+```
+
+That will be especially useful for your lab because you can visually edit:
+
+```text
+/opt/monitoring/
+│
+├── docker-compose.yml
+├── prometheus.yml
+├── blackbox.yml
+├── config.alloy
+├── targets/
+│   ├── cisco.yml
+│   ├── fortinet.yml
+│   ├── icmp.yml
+│   └── tcp.yml
+```
+
+Microsoft's current official Linux documentation supports both the Snap installation and the APT repository method. The current official repository setup uses a `.sources` file and `/usr/share/keyrings/microsoft.gpg`, which is why I recommend the updated commands above instead of the older `packages.microsoft.gpg` instructions. ([Visual Studio Code][1])
+
+## About Snap
+
+This is also valid:
+
+```bash
+sudo snap install --classic code
+```
+
+So your original **Method 1 is correct** too. Snap updates VS Code automatically in the background. ([Visual Studio Code][1])
+
+### For your Xubuntu lab, my choice would be:
+
+```text
+VS Code installation → Microsoft APT repository
+Docker → Docker Engine + Docker Compose
+Monitoring files → /opt/monitoring
+```
+
+That gives you a clean development environment and VS Code updates through:
+
+```bash
+sudo apt update
+sudo apt upgrade
+```
+
+[Official Microsoft VS Code Linux installation guide](https://code.visualstudio.com/docs/setup/linux?utm_source=chatgpt.com)
+
+[1]: https://code.visualstudio.com/docs/setup/linux?utm_source=chatgpt.com "Installing Visual Studio Code on Linux"
