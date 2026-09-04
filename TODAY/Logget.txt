@@ -1,0 +1,12 @@
+Yes, exactly! That is the core power of this monitoring stack.
+
+When you make routing changes (like OSPF or BGP state changes) or modify VLANs, your routers and switches instantly generate syslog messages. Those messages get sent straight to **Grafana Alloy**, stored in **Loki**, and you can view them live in **Grafana** with precise timestamps.
+
+This means you can instantly see things like:
+
+* **OSPF neighbor state changes** (e.g., going from `FULL` to `DOWN` and back up).
+* **BGP prefix updates or session resets.**
+* **Interface status updates** when you modify a VLAN or shut down a port.
+* **Exact timestamps** for when a network event happened so you can correlate configuration changes with downtime or connectivity issues.
+
+Since your stack is now set up and running on Xubuntu, what would you like to tackle next to get your EVE-NG devices talking to it?
