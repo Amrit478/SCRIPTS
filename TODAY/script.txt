@@ -1,0 +1,1311 @@
+Yes. Since you are monitoring only:
+
+* Cisco IOL L2 switches
+* Cisco IOL L3 routers
+* Fortinet firewall
+* Cisco IP SLA
+* Syslog
+* SNMP
+* Device availability and latency
+
+I recommend **removing GoFlow2, NetFlow, ClickHouse, Promtail, and unnecessary TCP flow collectors** for now.
+
+Those add complexity and are not necessary for the monitoring lab you described.
+
+Your modern stack should be:
+
+```text
+                    EVE-NG LAB
+
+     Cisco IOL L2 ───┐
+                     │ SNMP
+     Cisco IOL L3 ───┼───────────────┐
+                     │               │
+     FortiGate ──────┘               ▼
+                               SNMP Exporter
+                                     │
+                                     ▼
+                                Prometheus
+                                     │
+                                     ▼
+                                   Grafana
+
+
+     Cisco Devices ───── Syslog ─────► Grafana Alloy
+                                          │
+                                          ▼
+                                         Loki
+                                          │
+                                          ▼
+                                        Grafana
+
+
+     Prometheus ───── ICMP/TCP probes ──► Blackbox Exporter
+                                              │
+                                              ▼
+                                         Cisco/Fortinet
+
+
+     Cisco Router IP SLA
+            │
+            └──── SNMP results ──────────────► SNMP Exporter
+```
+
+## What you will install
+
+```text
+Grafana           = Dashboards
+
+Prometheus        = Metrics database and monitoring
+
+SNMP Exporter     = Gets SNMP information from Cisco/Fortinet
+
+Loki              = Stores syslog messages
+
+Grafana Alloy     = Receives modern syslog and sends it to Loki
+
+Blackbox Exporter = ICMP ping / TCP / HTTP monitoring
+
+Node Exporter     = Monitors your Xubuntu monitoring server
+```
+
+---
+
+# STEP 1 — Install Docker
+
+Copy and paste:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl
+
+curl -fsSL https://get.docker.com -o get-docker.sh
+
+sudo sh get-docker.sh
+
+sudo apt install -y docker-compose-plugin
+
+sudo systemctl enable docker
+
+sudo systemctl start docker
+
+sudo docker --version
+
+sudo docker compose version
+```
+
+Then allow your normal user to run Docker without typing `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+After this:
+
+```text
+LOG OUT
+
+LOG BACK IN
+```
+
+Then test:
+
+```bash
+docker ps
+```
+
+If it works without `sudo`, Docker is ready.
+
+---
+
+# STEP 2 — Create the monitoring directory
+
+Copy:
+
+```bash
+sudo mkdir -p /opt/monitoring
+
+sudo chown -R $USER:$USER /opt/monitoring
+
+cd /opt/monitoring
+```
+
+Verify:
+
+```bash
+pwd
+```
+
+You should see:
+
+```text
+/opt/monitoring
+```
+
+---
+
+# STEP 3 — Create the Docker Compose file
+
+Copy this entire block.
+
+```bash
+cat << 'EOF' > docker-compose.yml
+services:
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: CHANGE_THIS_PASSWORD
+
+    networks:
+      - monitoring
+
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets:/etc/prometheus/targets:ro
+      - prometheus-data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+
+    networks:
+      - monitoring
+
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+
+    ports:
+      - "3100:3100"
+
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+
+    volumes:
+      - loki-data:/loki
+
+    networks:
+      - monitoring
+
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+
+    ports:
+      - "514:1514/udp"
+      - "1514:1514/udp"
+      - "1515:1515/tcp"
+
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+
+    networks:
+      - monitoring
+
+
+  snmp-exporter:
+    image: prom/snmp-exporter:latest
+    container_name: snmp-exporter
+    restart: unless-stopped
+
+    ports:
+      - "9116:9116"
+
+    networks:
+      - monitoring
+
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox-exporter
+    restart: unless-stopped
+
+    ports:
+      - "9115:9115"
+
+    volumes:
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+
+    networks:
+      - monitoring
+
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+
+    ports:
+      - "9100:9100"
+
+    pid: host
+
+    volumes:
+      - /:/host:ro,rslave
+
+    command:
+      - "--path.rootfs=/host"
+
+    networks:
+      - monitoring
+
+
+networks:
+
+  monitoring:
+    driver: bridge
+
+
+volumes:
+
+  grafana-data:
+
+  prometheus-data:
+
+  loki-data:
+EOF
+```
+
+### Important
+
+Before starting the containers, change this:
+
+```text
+CHANGE_THIS_PASSWORD
+```
+
+You can edit it later using:
+
+```bash
+nano docker-compose.yml
+```
+
+For example:
+
+```yaml
+GF_SECURITY_ADMIN_PASSWORD: YourStrongPasswordHere
+```
+
+Save Nano:
+
+```text
+CTRL + O
+
+ENTER
+
+CTRL + X
+```
+
+---
+
+# STEP 4 — Create the Prometheus configuration
+
+Copy:
+
+```bash
+mkdir -p targets
+```
+
+Now create:
+
+```bash
+cat << 'EOF' > prometheus.yml
+global:
+
+  scrape_interval: 15s
+
+  evaluation_interval: 15s
+
+
+scrape_configs:
+
+
+  ##################################################
+  # PROMETHEUS
+  ##################################################
+
+  - job_name: prometheus
+
+    static_configs:
+
+      - targets:
+
+          - prometheus:9090
+
+
+  ##################################################
+  # XUBUNTU MONITORING SERVER
+  ##################################################
+
+  - job_name: xubuntu
+
+    static_configs:
+
+      - targets:
+
+          - node-exporter:9100
+
+
+  ##################################################
+  # CISCO DEVICES USING SNMP
+  ##################################################
+
+  - job_name: cisco-snmp
+
+    metrics_path: /snmp
+
+    params:
+
+      module:
+
+        - if_mib
+
+    file_sd_configs:
+
+      - files:
+
+          - /etc/prometheus/targets/cisco.yml
+
+    relabel_configs:
+
+      - source_labels:
+
+          - __address__
+
+        target_label: __param_target
+
+
+      - source_labels:
+
+          - __param_target
+
+        target_label: instance
+
+
+      - target_label: __address__
+
+        replacement: snmp-exporter:9116
+
+
+  ##################################################
+  # FORTINET FIREWALL USING SNMP
+  ##################################################
+
+  - job_name: fortinet-snmp
+
+    metrics_path: /snmp
+
+    params:
+
+      module:
+
+        - if_mib
+
+    file_sd_configs:
+
+      - files:
+
+          - /etc/prometheus/targets/fortinet.yml
+
+    relabel_configs:
+
+      - source_labels:
+
+          - __address__
+
+        target_label: __param_target
+
+
+      - source_labels:
+
+          - __param_target
+
+        target_label: instance
+
+
+      - target_label: __address__
+
+        replacement: snmp-exporter:9116
+
+
+  ##################################################
+  # ICMP PING MONITORING
+  ##################################################
+
+  - job_name: icmp
+
+    metrics_path: /probe
+
+    params:
+
+      module:
+
+        - icmp
+
+    file_sd_configs:
+
+      - files:
+
+          - /etc/prometheus/targets/icmp.yml
+
+    relabel_configs:
+
+      - source_labels:
+
+          - __address__
+
+        target_label: __param_target
+
+
+      - source_labels:
+
+          - __param_target
+
+        target_label: instance
+
+
+      - target_label: __address__
+
+        replacement: blackbox-exporter:9115
+
+
+  ##################################################
+  # TCP PORT MONITORING
+  ##################################################
+
+  - job_name: tcp
+
+    metrics_path: /probe
+
+    params:
+
+      module:
+
+        - tcp_connect
+
+    file_sd_configs:
+
+      - files:
+
+          - /etc/prometheus/targets/tcp.yml
+
+    relabel_configs:
+
+      - source_labels:
+
+          - __address__
+
+        target_label: __param_target
+
+
+      - source_labels:
+
+          - __param_target
+
+        target_label: instance
+
+
+      - target_label: __address__
+
+        replacement: blackbox-exporter:9115
+EOF
+```
+
+---
+
+# STEP 5 — Create Blackbox configuration
+
+Copy:
+
+```bash
+cat << 'EOF' > blackbox.yml
+modules:
+
+
+  ##################################################
+  # ICMP PING
+  ##################################################
+
+  icmp:
+
+    prober: icmp
+
+    timeout: 5s
+
+    icmp:
+
+      preferred_ip_protocol: ip4
+
+
+  ##################################################
+  # TCP CONNECTION
+  ##################################################
+
+  tcp_connect:
+
+    prober: tcp
+
+    timeout: 5s
+
+    tcp:
+
+      preferred_ip_protocol: ip4
+
+
+  ##################################################
+  # HTTP
+  ##################################################
+
+  http_2xx:
+
+    prober: http
+
+    timeout: 5s
+
+    http:
+
+      preferred_ip_protocol: ip4
+
+      valid_http_versions:
+
+        - HTTP/1.1
+
+        - HTTP/2.0
+
+      valid_status_codes:
+
+        - 200
+
+        - 201
+
+        - 202
+
+        - 204
+EOF
+```
+
+---
+
+# STEP 6 — Create Grafana Alloy syslog configuration
+
+This replaces the old Promtail setup.
+
+Copy:
+
+```bash
+cat << 'EOF' > config.alloy
+loki.write "default" {
+
+  endpoint {
+
+    url = "http://loki:3100/loki/api/v1/push"
+
+  }
+
+}
+
+
+loki.source.syslog "udp" {
+
+  listener {
+
+    address  = "0.0.0.0:1514"
+    protocol = "udp"
+
+  }
+
+  forward_to = [
+
+    loki.write.default.receiver,
+
+  ]
+
+  labels = {
+
+    job      = "syslog"
+    protocol = "udp"
+
+  }
+
+}
+
+
+loki.source.syslog "tcp" {
+
+  listener {
+
+    address  = "0.0.0.0:1515"
+    protocol = "tcp"
+
+  }
+
+  forward_to = [
+
+    loki.write.default.receiver,
+
+  ]
+
+  labels = {
+
+    job      = "syslog"
+    protocol = "tcp"
+
+  }
+
+}
+EOF
+```
+
+Your Cisco and Fortinet devices will send Syslog to:
+
+```text
+XUBUNTU-IP
+UDP 514
+```
+
+Docker forwards:
+
+```text
+XUBUNTU-IP:514
+
+        ↓
+
+Docker
+
+        ↓
+
+Alloy container
+
+        ↓
+
+Loki
+```
+
+---
+
+# STEP 7 — Create Cisco device targets
+
+Create the file:
+
+```bash
+cat << 'EOF' > targets/cisco.yml
+- targets:
+
+    - 192.168.100.10
+
+  labels:
+
+    device: Cisco-IOL-L2-1
+
+    type: switch
+
+
+- targets:
+
+    - 192.168.100.11
+
+  labels:
+
+    device: Cisco-IOL-L2-2
+
+    type: switch
+
+
+- targets:
+
+    - 192.168.100.20
+
+  labels:
+
+    device: Cisco-IOL-L3-1
+
+    type: router
+
+
+- targets:
+
+    - 192.168.100.21
+
+  labels:
+
+    device: Cisco-IOL-L3-2
+
+    type: router
+EOF
+```
+
+### Change these IP addresses
+
+```text
+192.168.100.10
+
+192.168.100.11
+
+192.168.100.20
+
+192.168.100.21
+```
+
+To the actual management IP addresses of your Cisco IOL devices.
+
+You can add as many devices as you want.
+
+---
+
+# STEP 8 — Create Fortinet targets
+
+Copy:
+
+```bash
+cat << 'EOF' > targets/fortinet.yml
+- targets:
+
+    - 192.168.100.1
+
+  labels:
+
+    device: FortiGate
+
+    type: firewall
+EOF
+```
+
+Change:
+
+```text
+192.168.100.1
+```
+
+To your Fortinet management IP.
+
+---
+
+# STEP 9 — Create ICMP monitoring targets
+
+This monitors whether devices are alive.
+
+Copy:
+
+```bash
+cat << 'EOF' > targets/icmp.yml
+- targets:
+
+    - 192.168.100.1
+
+  labels:
+
+    device: FortiGate
+
+
+- targets:
+
+    - 192.168.100.10
+
+  labels:
+
+    device: Cisco-IOL-L2-1
+
+
+- targets:
+
+    - 192.168.100.11
+
+  labels:
+
+    device: Cisco-IOL-L2-2
+
+
+- targets:
+
+    - 192.168.100.20
+
+  labels:
+
+    device: Cisco-IOL-L3-1
+
+
+- targets:
+
+    - 192.168.100.21
+
+  labels:
+
+    device: Cisco-IOL-L3-2
+EOF
+```
+
+---
+
+# STEP 10 — Create TCP monitoring targets
+
+For example, if your Fortinet GUI is HTTPS:
+
+```bash
+cat << 'EOF' > targets/tcp.yml
+- targets:
+
+    - 192.168.100.1:443
+
+  labels:
+
+    device: FortiGate
+
+    service: HTTPS
+
+
+- targets:
+
+    - 192.168.100.1:22
+
+  labels:
+
+    device: FortiGate
+
+    service: SSH
+EOF
+```
+
+You can add more later.
+
+---
+
+# STEP 11 — Verify all files exist
+
+Run:
+
+```bash
+ls -R
+```
+
+You should see approximately:
+
+```text
+/opt/monitoring
+
+docker-compose.yml
+
+prometheus.yml
+
+blackbox.yml
+
+config.alloy
+
+targets/
+
+    cisco.yml
+
+    fortinet.yml
+
+    icmp.yml
+
+    tcp.yml
+```
+
+---
+
+# STEP 12 — Start everything
+
+Now start the monitoring stack:
+
+```bash
+docker compose up -d
+```
+
+Check:
+
+```bash
+docker ps
+```
+
+You should see:
+
+```text
+grafana
+
+prometheus
+
+loki
+
+alloy
+
+snmp-exporter
+
+blackbox-exporter
+
+node-exporter
+```
+
+---
+
+# STEP 13 — Check for errors
+
+Run:
+
+```bash
+docker compose logs --tail=50
+```
+
+For a specific container:
+
+```bash
+docker logs grafana
+```
+
+```bash
+docker logs prometheus
+```
+
+```bash
+docker logs alloy
+```
+
+---
+
+# STEP 14 — Find your Xubuntu IP
+
+Run:
+
+```bash
+hostname -I
+```
+
+For example:
+
+```text
+192.168.1.50
+```
+
+Your monitoring server is now:
+
+```text
+Xubuntu IP:
+
+192.168.1.50
+```
+
+---
+
+# Your access URLs
+
+If your Xubuntu IP is:
+
+```text
+192.168.1.50
+```
+
+Then:
+
+### Grafana
+
+```text
+http://192.168.1.50:3000
+```
+
+### Prometheus
+
+```text
+http://192.168.1.50:9090
+```
+
+### SNMP Exporter
+
+```text
+http://192.168.1.50:9116
+```
+
+### Blackbox Exporter
+
+```text
+http://192.168.1.50:9115
+```
+
+---
+
+# IMPORTANT: Cisco SNMP configuration
+
+For your Cisco IOL devices, we should use **SNMPv3**, not SNMPv2c, eventually.
+
+For initial lab testing, SNMPv2c is easier.
+
+Example:
+
+```cisco
+conf t
+
+snmp-server community Monitoring123 RO
+
+end
+
+write memory
+```
+
+Then the SNMP Exporter configuration must know the community string.
+
+⚠️ **This is the one part I do not want you to blindly configure yet.**
+
+The default SNMP Exporter configuration may use a different SNMP authentication profile than your devices. Before we configure all of your Cisco devices, we should verify the SNMP Exporter's current `snmp.yml` and configure the authentication correctly.
+
+---
+
+# Cisco IP SLA — Important distinction
+
+There are **two types of monitoring** you will have.
+
+## Method 1: Blackbox ICMP
+
+Prometheus sends:
+
+```text
+Prometheus
+
+     ↓
+
+Blackbox Exporter
+
+     ↓
+
+PING
+
+     ↓
+
+Cisco Router
+```
+
+This tells you:
+
+```text
+Is the device reachable?
+
+What is the latency?
+
+Did packets fail?
+
+What is packet loss?
+```
+
+---
+
+## Method 2: Cisco IP SLA
+
+Cisco itself generates the probe:
+
+```text
+Cisco Router A
+
+     ↓
+
+IP SLA Probe
+
+     ↓
+
+Destination
+
+     ↓
+
+Cisco Router A
+```
+
+For example:
+
+```cisco
+ip sla 1
+
+ icmp-echo 10.10.10.2
+
+ frequency 10
+
+ip sla schedule 1 life forever start-time now
+```
+
+Then Cisco stores statistics such as:
+
+```text
+Round-trip time
+
+Packet loss
+
+Success/failure
+
+Jitter
+```
+
+The monitoring server retrieves those results using SNMP:
+
+```text
+Cisco IP SLA
+
+      ↓
+
+SNMP
+
+      ↓
+
+SNMP Exporter
+
+      ↓
+
+Prometheus
+
+      ↓
+
+Grafana
+```
+
+## My recommendation for IP SLA
+
+**Do not add a random IP SLA SNMP module yet.**
+
+IP SLA monitoring requires adding the Cisco RTTMON MIB/OIDs correctly to the SNMP Exporter configuration. I would build that as the **next step**, after we verify:
+
+1. Your Cisco IOL L3 image supports IP SLA correctly.
+2. Your IOL image supports the required SNMP MIB.
+3. We confirm SNMPv2c or SNMPv3.
+4. We test one IP SLA operation.
+5. Then we add the correct IP SLA metrics to Prometheus.
+
+That prevents us from building a huge configuration that fails because the particular IOL version doesn't expose the expected OIDs.
+
+---
+
+# What I removed from the old configuration
+
+I intentionally removed:
+
+```text
+❌ Promtail
+```
+
+Because:
+
+```text
+Promtail → Deprecated / End of Life
+
+Grafana Alloy → Modern replacement
+```
+
+I removed:
+
+```text
+❌ GoFlow2 TCP
+```
+
+Because you don't need TCP NetFlow collection for this lab.
+
+I removed:
+
+```text
+❌ GoFlow2 UDP
+❌ ClickHouse
+❌ NetFlow
+```
+
+Because your current requirement is only:
+
+```text
+Cisco IOL L2
+
+Cisco IOL L3
+
+Fortinet
+
+SNMP
+
+Syslog
+
+IP SLA
+```
+
+You can add NetFlow later when you specifically want to learn traffic analysis.
+
+I also removed:
+
+```text
+❌ Node Exporter NTP collector
+```
+
+Because it is unnecessary for your current lab.
+
+---
+
+# Your final monitoring architecture
+
+```text
+                         ┌─────────────────┐
+                         │     GRAFANA     │
+                         │                 │
+                         │ Dashboards      │
+                         │ Metrics         │
+                         │ Logs            │
+                         └────────▲────────┘
+                                  │
+                  ┌───────────────┼───────────────┐
+                  │               │               │
+                  │               │               │
+           ┌──────┴──────┐  ┌─────┴─────┐   ┌─────┴──────┐
+           │ PROMETHEUS  │  │   LOKI    │   │   Future    │
+           │             │  │           │   │  NetFlow    │
+           └──────▲──────┘  └─────▲─────┘   └────────────┘
+                  │               │
+         ┌────────┼───────┐       │
+         │        │       │       │
+         ▼        ▼       ▼       ▼
+      SNMP      ICMP    Node    ALLOY
+    Exporter  Blackbox  Exporter    │
+         │        │       │         │
+         │        │       │       Syslog
+         │        │       │         │
+         ▼        ▼       │         ▼
+      Cisco    Cisco      │       Cisco
+      IOL      Fortinet   │       Fortinet
+         │
+         │
+         ▼
+      IP SLA
+      Metrics
+```
+
+## One thing before you start
+
+I recommend you **install this stack first and verify that all seven containers are running**. Then we should do the next phase in this order:
+
+1. Configure connectivity between EVE-NG and Xubuntu.
+2. Configure **one Cisco IOL device with SNMP**.
+3. Verify Prometheus can scrape it.
+4. Add Cisco IOL L2 and L3 interface monitoring.
+5. Add Fortinet monitoring.
+6. Configure Syslog → Alloy → Loki.
+7. Configure one Cisco IP SLA operation.
+8. Add IP SLA SNMP metrics.
+9. Build Grafana dashboards and alerts.
+
+That will be much easier to troubleshoot than configuring everything simultaneously.
