@@ -130,3 +130,18 @@ the NetworkManager profile.
   configuring the L3 switch/router and L2 switch to point at
   `192.168.1.130`, and adding their real IPs into
   `/opt/monitoring/targets/*.yml` for Prometheus to scrape.
+
+
+
+
+
+
+
+Since 192.168.1.130 is now permanent, go to:
+
+http://192.168.1.130:3000
+
+Login with the credentials baked into your docker-compose.yml:
+
+Username: admin
+Password: whatever you set for GF_SECURITY_ADMIN_PASSWORD (it was still the placeholder CHANGE_THIS_PASSWORD in the file I gave you — if you never changed it, that's your password)
