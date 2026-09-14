@@ -1,3 +1,61 @@
+Since packets from R2 (`192.168.1.125`) are still being completely filtered out before reaching `enp0s31f6`, Linux is preventing VMware's bridged adapter from injecting packets with virtual MAC addresses into your physical NIC.
+
+The standard solution for EVE-NG on Linux to avoid physical bridge filtering is to use **Host-Only networking (vmnet1)** or **NAT (vmnet8)**.
+
+---
+
+### Step-by-Step Fix: Switch to Host-Only Network (`vmnet1`)
+
+1. **Set EVE-NG Network Adapter to Host-Only:** VMware GUI.
+Open your EVE-NG Virtual Machine Settings in VMware:
+
+* Select **Network Adapter 1**.
+* Change the connection setting to **Host-Only: A private network shared with the host**.
+* Click **Save**.
+
+*Verification:* The adapter summary will read `Host-Only`.
+
+
+2. **Check Host-Only Gateway IP (vmnet1):** Xubuntu Terminal.
+On your Xubuntu terminal, check the IP address assigned to `vmnet1`:
+
+```bash
+ip a show vmnet1
+
+```
+
+*Verification:* The output will display an IP address like `172.16.32.1/24`. Note down your specific subnet (e.g., `172.16.32.x`).
+
+
+3. **Assign IP in Host-Only Subnet to R2:** R2 Console.
+Configure `Ethernet0/0` on R2 to match your `vmnet1` subnet (assuming `172.16.32.x` based on your previous `ip a` output):
+
+```text
+configure terminal
+interface Ethernet0/0
+no ip address dhcp
+ip address 172.16.32.100 255.255.255.0
+no shutdown
+end
+
+```
+
+*Verification:* Run `show ip interface brief` to confirm `Ethernet0/0` shows `172.16.32.100` with Status `up`.
+
+
+4. **Ping Xubuntu Host via Host-Only Interface:** R2 Console.
+Ping your host machine's `vmnet1` IP address (`172.16.32.1`) from R2:
+
+```text
+ping 172.16.32.1
+
+```
+
+*Verification:* The ping will complete successfully with `!!!!!` (100% success rate), as Host-Only traffic bypasses physical hardware filtering entirely.
+
+
+---
+
 # EVE-NG Cisco Router (R2) to Host Connectivity & Monitoring Runbook
 
 This document details the configuration steps, troubleshooting process, and current status of connecting an EVE-NG Cisco router (R2) to a physical Xubuntu host (`192.168.1.130`) for telemetry ingestion (Syslog/NetFlow).
