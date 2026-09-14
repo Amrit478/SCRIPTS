@@ -1,0 +1,135 @@
+To lock in `172.16.32.1` as your permanent, static IP for `vmnet1` across system reboots, implement these three configurations on your Xubuntu host:
+
+---
+
+### Step 1: Lock `vmnet1` in Netplan (Static IP Binding)
+
+Define `vmnet1` directly in Netplan so Xubuntu treats it as a fixed static interface.
+
+1. Create a dedicated Netplan configuration file:
+```bash
+sudo nano /etc/netplan/99-vmnet1-static.yaml
+
+```
+
+
+2. Paste the following configuration:
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    vmnet1:
+      addresses:
+        - 172.16.32.1/24
+      dhcp4: no
+      dhcp6: no
+      optional: true
+
+```
+
+
+3. Apply the network configuration:
+```bash
+sudo netplan apply
+
+```
+
+
+
+---
+
+### Step 2: Prevent NetworkManager Overrides
+
+Ensure NetworkManager ignores `vmnet1` so it never attempts to reassign or refresh the interface via DHCP.
+
+1. Open the NetworkManager configuration file:
+```bash
+sudo nano /etc/NetworkManager/NetworkManager.conf
+
+```
+
+
+2. Add `vmnet1` to the unmanaged devices list:
+```ini
+[keyfile]
+unmanaged-devices=interface-name:vmnet1
+
+```
+
+
+3. Restart NetworkManager:
+```bash
+sudo systemctl restart NetworkManager
+
+```
+
+
+
+---
+
+### Step 3: Automate VMware Virtual Adapter Permissions on Startup
+
+VMware interface permissions can reset on host reboot, which prevents `vmnet1` from initializing correctly. Automate permission fixes using a `systemd` startup service.
+
+1. **Create Permission Script:** Host Terminal.
+Create a script to set permissions on boot:
+
+```bash
+sudo nano /usr/local/bin/fix-vmnet-perms.sh
+
+```
+
+Add these lines:
+
+```bash
+#!/bin/bash
+chmod a+rw /dev/vmnet*
+ip link set vmnet1 up
+
+```
+
+Make it executable:
+
+```bash
+sudo chmod +x /usr/local/bin/fix-vmnet-perms.sh
+
+```
+
+
+2. **Create Systemd Service:** Host Terminal.
+Create a boot service file:
+
+```bash
+sudo nano /etc/systemd/system/vmnet-startup.service
+
+```
+
+Paste the unit configuration:
+
+```ini
+[Unit]
+Description=Fix VMware vmnet permissions and force link state UP
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fix-vmnet-perms.sh
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+Enable the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable vmnet-startup.service
+
+```
+
+*Verification:* Reboot your host (`sudo reboot`), open a terminal, and run `ip addr show vmnet1`. It will report `inet 172.16.32.1/24 scope global vmnet1` with state `UP`.
+
+
+---
