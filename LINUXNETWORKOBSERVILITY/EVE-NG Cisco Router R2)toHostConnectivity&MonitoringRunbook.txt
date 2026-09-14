@@ -1,0 +1,141 @@
+# EVE-NG Cisco Router (R2) to Host Connectivity & Monitoring Runbook
+
+This document details the configuration steps, troubleshooting process, and current status of connecting an EVE-NG Cisco router (R2) to a physical Xubuntu host (`192.168.1.130`) for telemetry ingestion (Syslog/NetFlow).
+
+---
+
+## 1. Environment & Setup Details
+
+| Component | Detail |
+| --- | --- |
+| **Host OS** | Xubuntu / Ubuntu-based Linux (`amritraj-OptiPlex-5050`) |
+| **Host Static IP** | `192.168.1.130/24` (Interface: `enp0s31f6`) |
+| **Virtualization** | VMware Workstation / Player |
+| **Virtual Lab Platform** | EVE-NG Community / Pro |
+| **Target Node** | Cisco IOS Router (`R2`) connected to `Management (Cloud0)` |
+| **R2 Dynamic LAN IP** | `192.168.1.125` (assigned via DHCP) |
+| **R2 Host-Only IP** | `172.16.32.100/24` (assigned on `Ethernet0/0`) |
+| **Host `vmnet1` IP** | `172.16.32.1/24` |
+
+---
+
+## 2. Issues Encountered & Resolved
+
+* **VMware Network Subnet Mismatch**: VMware defaults assigned `vmnet8` (NAT) to `192.168.74.0/24`, causing R2 on `Cloud0` to boot into a different subnet than the host's `192.168.1.0/24` network.
+* *Fix:* Rebound `vmnet0` in the VMware Virtual Network Editor specifically to physical interface `enp0s31f6`.
+
+
+* **Systemd Service Unit Warnings**: Running `sudo systemctl restart vmware` generated configuration warnings.
+* *Fix:* Executed `sudo systemctl daemon-reload` prior to restarting `vmware.service`.
+
+
+* **Invalid Service Command Flags**: `vmware-networks --restart` returned an invalid option error.
+* *Fix:* Switched to managing the underlying system service using `sudo systemctl restart vmware`.
+
+
+* **Linux Physical Adapter Virtual MAC Filtering**: Physical bridge filtering on Linux (`enp0s31f6`) dropped incoming ICMP traffic from Cisco virtual MAC addresses (e.g., `aa:bb:cc:00:20:00`), preventing Layer 2 return traffic across the physical interface.
+* *Fix:* Shifted telemetry interface binding from bridged LAN (`vmnet0`) to VMware Host-Only (`vmnet1`).
+
+
+
+---
+
+## 3. Configuration Steps Completed
+
+### A. Host System Permissions & Service Configuration (Xubuntu Terminal)
+
+```bash
+# Update virtual network device permissions for promiscuous mode support
+sudo chmod a+rw /dev/vmnet*
+
+# Reload systemd units and restart VMware services
+sudo systemctl daemon-reload
+sudo systemctl restart vmware
+
+# Clear iptables rules to ensure local host traffic is unblocked
+sudo iptables -F
+sudo iptables -P INPUT ACCEPT
+sudo iptables -P FORWARD ACCEPT
+
+```
+
+### B. Cisco Router (R2) Interface Configuration (R2 Console)
+
+```text
+configure terminal
+interface Ethernet0/0
+ no ip address dhcp
+ ip address 172.16.32.100 255.255.255.0
+ no shutdown
+ end
+clear arp
+
+```
+
+---
+
+## 4. Diagnostic & Verification Commands Executed
+
+* **Verify Virtual Adapter Device File Permissions:**
+```bash
+ls -l /dev/vmnet*
+
+```
+
+
+*Expected Output:* `crw-rw-rw-` on all `vmnet` character devices.
+* **Check Host-Only Gateway IP on Xubuntu:**
+```bash
+ip a show vmnet1
+
+```
+
+
+*Expected Output:* `inet 172.16.32.1/24`
+* **Verify Layer 2 Neighbor Resolution:**
+```bash
+ip neighbor show | grep 192.168.1.125
+
+```
+
+
+* **Capture ICMP Traffic on Host Adapter:**
+```bash
+sudo tcpdump -n -i enp0s31f6 icmp
+
+```
+
+
+* **Execute Connectivity Test from Router:**
+```text
+ping 172.16.32.1
+
+```
+
+
+*Expected Output:* `Success rate is 100 percent (5/5), round-trip min/avg/max = 1/2/4 ms` (`!!!!!`).
+
+---
+
+## 5. Current Status & Next Steps
+
+### Current Status
+
+* Connectivity issue isolated to physical adapter virtual MAC filtering on bridged networking (`vmnet0`).
+* Router R2 is configured with static IP `172.16.32.100` on interface `Ethernet0/0`.
+* Host-Only network adapter (`vmnet1`) provides a direct, unfiltered communication path between R2 (`172.16.32.100`) and the Xubuntu host (`172.16.32.1`).
+
+### Next Steps
+
+1. **Configure R2 Telemetry Logging:**
+* Configure Syslog on R2 pointing to destination `172.16.32.1` over UDP port `1514`.
+* Configure NetFlow/IPFIX export on R2 pointing to destination `172.16.32.1` over UDP port `2055`.
+
+
+2. **Verify Ingestion on Host:**
+* Run `sudo tcpdump -n -i vmnet1 udp port 1514` to confirm live Syslog transmission.
+* Run `sudo tcpdump -n -i vmnet1 udp port 2055` to confirm active NetFlow export packets.
+
+
+3. **Integrate into Monitoring Stack:**
+* Update `/opt/monitoring/config.alloy` and `/opt/monitoring/targets/cisco.yml` to reflect target IP `172.16.32.100`.
