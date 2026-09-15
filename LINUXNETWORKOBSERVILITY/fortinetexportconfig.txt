@@ -1,3 +1,8 @@
+Saved configuration in fortinet using this command 
+
+execute backup config flash "config_saved"
+
+
 Here is the exact configuration performed on the FortiGate CLI so you can re-apply or save it:
 
 **1. Interface Configuration (`port1`)**
