@@ -1,0 +1,31 @@
+That /24 (172.16.32.0/255.255.255.0) gives you only 254 usable addresses. To open it up to a /16 you widen the subnet mask, not the subnet count — vmnet1 stays as one single network, just bigger.
+
+**In the Virtual Network Editor:**
+
+1. Select `vmnet1`, keep it as Host-only.
+2. Change **Subnet IP** to `172.16.0.0`
+3. Change **Subnet mask** to `255.255.0.0`
+4. Click **Save** — this restarts the VMware networking services automatically (or run `sudo vmware-networks --stop && sudo vmware-networks --start` if it doesn't).
+
+Now vmnet1 covers `172.16.0.0 – 172.16.255.255`, ~65,534 usable addresses, and your host's `vmnet1` interface itself will get an IP somewhere in that range (usually `172.16.0.1`).
+
+**One important thing to understand — this matters a lot for what you're trying to do:**
+
+Host-only vmnet1 is a single flat Layer 2 segment. Widening the mask doesn't create separate "subnets" in the routing sense — it just means you can now assign IPs like `172.16.1.10`, `172.16.5.20`, `172.16.200.5`, etc., and they're all still on the *same* broadcast domain as your host. That's actually exactly what you want:
+
+- Every EVE-NG node you connect via a Cloud object mapped to vmnet1 will be directly, natively visible to your host — no routing needed.
+- Your host can ping, SNMP-poll, packet-capture (tcpdump on vmnet1), or run any monitoring stack against any of those 60+ nodes regardless of which "octet range" you gave them, because they're L2-adjacent to the host.
+- Nothing can "leave" this network by design (host-only = no bridge to your LAN/internet), so your observability boundary is naturally enforced.
+
+**Where it gets more complex — if you actually want isolated broadcast domains (real subnets) inside EVE-NG:**
+
+If instead you're building topologies where nodes sit behind routers/L3 switches inside EVE-NG (so they're in genuinely separate broadcast domains, e.g. `10.10.1.0/24` behind Router-A, `10.10.2.0/24` behind Router-B), those inner subnets are *not* automatically reachable from your host just because vmnet1 is big now. You'd need to:
+
+- Give the router(s) an interface on the vmnet1 Cloud with an IP in the 172.16.0.0/16 range (e.g. `172.16.1.1`)
+- Add a static route on your host pointing each inner subnet to that router as gateway:
+  ```
+  sudo ip route add 10.10.1.0/24 via 172.16.1.1 dev vmnet1
+  sudo ip route add 10.10.2.0/24 via 172.16.1.1 dev vmnet1
+  ```
+
+So — quick check: do you want all 60 nodes flat on `172.16.x.x` addresses directly reachable (simple, what the mask change alone gives you), or do you have routers inside the EVE-NG topology separating them into their own subnets that you also need visibility into?
